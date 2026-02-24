@@ -1,0 +1,62 @@
+{
+    "generated_at": "2026-02-24 14:31:04",
+    "table": "employees",
+    "strategy_used": "Primary Key",
+    "summary": {
+        "total_source_rows": 5,
+        "total_target_rows": 5,
+        "missing_in_target": 1,
+        "missing_in_source": 1,
+        "mismatched_rows": 2
+    },
+    "details": {
+        "missing_in_target": [
+            {
+                "key": "4",
+                "key_column": "id",
+                "row": {
+                    "id": 4,
+                    "name": "Diana",
+                    "department": "Finance",
+                    "salary": 70000
+                }
+            }
+        ],
+        "missing_in_source": [
+            {
+                "key": "6",
+                "key_column": "id",
+                "row": {
+                    "id": 6,
+                    "name": "Frank",
+                    "department": "Finance",
+                    "salary": 72000
+                }
+            }
+        ],
+        "mismatched_rows": [
+            {
+                "key": "1",
+                "key_column": "id",
+                "mismatches": [
+                    {
+                        "column": "salary",
+                        "source_value": 50000,
+                        "target_value": 55000
+                    }
+                ]
+            },
+            {
+                "key": "3",
+                "key_column": "id",
+                "mismatches": [
+                    {
+                        "column": "department",
+                        "source_value": "HR",
+                        "target_value": "Marketing"
+                    }
+                ]
+            }
+        ]
+    }
+}

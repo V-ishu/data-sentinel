@@ -8,6 +8,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY ./app ./app
 COPY ./sentinel ./sentinel
 
+RUN python scripts/sedd_demo.py
+
 EXPOSE 8000
 
 CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}

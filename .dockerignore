@@ -8,7 +8,6 @@ __pycache__/
 .gitignore
 README.md
 tests/
-scripts/
 report.json
 .dockerignore
 Dockerfile

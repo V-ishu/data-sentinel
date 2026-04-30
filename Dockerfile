@@ -8,7 +8,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY ./app ./app
 COPY ./sentinel ./sentinel
 
-RUN python scripts/sedd_demo.py
+RUN python scripts/seed_demo.py
 
 EXPOSE 8000
 

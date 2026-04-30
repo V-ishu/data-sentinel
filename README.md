@@ -1,5 +1,10 @@
 # data-sentinel
 
+![CI](https://github.com/V-ishu/data-sentinel/actions/workflows/ci.yml/badge.svg)
+
+**Live demo:** [data-sentinel.onrender.com](https://data-sentinel.onrender.com) . 
+**API docs:** [/docs](https://data-sentinel.onrender.com/docs)
+
 > Open-source data validation service. Compare any two SQLAlchemy-compatible databases with a three-tier fallback strategy.
 
 `data-sentinel` exposes both a Python CLI (Click) and a REST API (FastAPI) for verifying data integrity across database environments — useful during migrations, releases, and post-deploy validation.
@@ -175,8 +180,8 @@ See `.env.example` for the full format.
 - [x] Persistent job storage with SQLAlchemy ORM
 - [x] Async job orchestration via FastAPI BackgroundTasks
 - [x] Env-driven configuration + Dockerfile for cloud deployment
-- [ ] Production deployment on Render
-- [ ] Pytest test suite + GitHub Actions CI
+- [x] Production deployment on Render
+- [x] Pytest test suite + GitHub Actions CI
 - [ ] Excel report download endpoint (currently CLI-only)
 - [ ] Optional API key authentication
 - [ ] Migrate background jobs to Celery for distributed workers

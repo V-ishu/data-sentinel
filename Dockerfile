@@ -6,8 +6,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY ./app ./app
-COPY ./sentinel ./sentinel
 COPY ./scripts ./scripts
+COPY ./sentinel ./sentinel
 
 RUN python scripts/seed_demo.py
 

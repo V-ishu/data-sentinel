@@ -26,7 +26,7 @@ app.include_router(comparisons.router, prefix="/api/v1", tags=["comparison"])
 @app.get("/")
 def root():
     return {
-        "servie": "data-sentinel",
+        "service": "data-sentinel",
         "version": "0.1.0",
         "docs": "/docs",
     }

@@ -16,3 +16,10 @@ env/
 # OS files
 .DS_Store
 Thumbs.db
+
+.env
+.pytest_cache/
+.idea/
+.vscode/
+*.egg-info/
+

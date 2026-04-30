@@ -1,146 +1,188 @@
-# 🛡️ data-sentinel
+# data-sentinel
 
-A Python-based two-database comparison framework for detecting data drift, missing rows, and column-level mismatches across SQL databases.
+> Open-source data validation service. Compare any two SQLAlchemy-compatible databases with a three-tier fallback strategy.
 
-Built for data migration validation, release pipeline integrity checks, and environment consistency verification.
-
----
-
-## Why data-sentinel?
-
-When migrating data between environments, how do you know the migration was successful?
-
-Manually checking rows across two databases is error-prone and doesn't scale. data-sentinel automates this — connecting to both databases, comparing every row and column, and producing a clear report of exactly what's different.
+`data-sentinel` exposes both a Python CLI (Click) and a REST API (FastAPI) for verifying data integrity across database environments — useful during migrations, releases, and post-deploy validation.
 
 ---
 
-## How It Works
+## Why
 
-data-sentinel uses a **three-strategy comparison engine** with automatic fallback:
-
-| Strategy | When Used |
-|---|---|
-| **Primary Key** | Table has a single primary key — auto-detected |
-| **Composite Key** | No single PK — user specifies multiple columns as key |
-| **MD5 Row Hash** | No key available — each row is hashed and fingerprints are compared |
-
-For every row that exists in both databases, all columns are compared to detect mismatches.
+During data migrations between environments (dev → UAT → prod, or one client's database to another), engineers routinely need to verify that the destination matches the source — table by table, row by row. Manual SQL queries are slow and error-prone. `data-sentinel` automates this with both a CLI for ad-hoc runs and a REST API for programmatic or scheduled use.
 
 ---
 
-## Installation
+## Features
+
+- **Three-tier comparison strategy** with automatic fallback:
+  1. **Primary Key** — fast set-based comparison when a single PK exists
+  2. **Composite Key** — multi-column key when no single PK is defined
+  3. **MD5 Row Hash** — content-based fingerprinting when no key is available
+- **REST API** — submit jobs, poll status, fetch results
+- **Async job orchestration** — long comparisons don't block API responses
+- **Persistent job history** — jobs survive server restarts
+- **Configurable WHERE-clause filters** — compare a subset of rows
+- **Dual interface** — original Click CLI is still fully supported alongside the HTTP API
+- **Containerized** — single Dockerfile for cloud deployment
+- **Auto-generated OpenAPI docs** at `/docs`
+
+---
+
+## Architecture
+
+```
+┌──────────────┐
+│    Client    │  curl / Postman / browser at /docs
+└──────┬───────┘
+       │ HTTP
+       ▼
+┌──────────────────────────────────┐
+│            FastAPI               │
+│  POST /api/v1/comparisons        │
+│  GET  /api/v1/comparisons        │
+│  GET  /api/v1/comparisons/{id}   │
+│  DELETE /api/v1/comparisons/{id} │
+└──┬────────────────┬──────────────┘
+   │ enqueue        │ persist job state
+   ▼                ▼
+┌───────────────┐  ┌──────────────┐
+│ BackgroundTask│  │   Database   │
+│  runs engine  │  │ (jobs table) │
+└──────┬────────┘  └──────────────┘
+       │ uses sentinel.* engine
+       ▼
+┌──────────────┐     ┌──────────────┐
+│  Source DB   │     │  Target DB   │  user-supplied
+└──────────────┘     └──────────────┘
+```
+
+---
+
+## Quick Start
+
+### Prerequisites
+
+- Python 3.9+
+
+### Run Locally
+
 ```bash
 git clone https://github.com/V-ishu/data-sentinel.git
 cd data-sentinel
+
+python -m venv venv
+venv\Scripts\activate        # Windows
+# source venv/bin/activate   # macOS / Linux
+
 pip install -r requirements.txt
+python scripts/seed_demo.py  # creates source.db & target.db with intentional differences
+uvicorn app.main:app --reload
+```
+
+Open [http://localhost:8000/docs](http://localhost:8000/docs) in a browser.
+
+Try `POST /api/v1/comparisons` with this body:
+
+```json
+{
+  "source_db": "sqlite:///source.db",
+  "target_db": "sqlite:///target.db",
+  "table": "employees"
+}
+```
+
+You'll get a `job_id` back. Then call `GET /api/v1/comparisons/{job_id}` to see the full diff.
+
+### CLI (Original)
+
+```bash
+python -m sentinel.cli compare \
+  --source-db sqlite:///source.db \
+  --target-db sqlite:///target.db \
+  --table employees
 ```
 
 ---
 
-## Usage
+## API Reference
 
-### Basic comparison (primary key auto-detected)
-```bash
-python -m sentinel.cli compare \
-  --source-db "sqlite:///source.db" \
-  --target-db "sqlite:///target.db" \
-  --table "employees"
-```
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/api/v1/health` | Liveness check |
+| `POST` | `/api/v1/comparisons` | Submit a new comparison job (returns `202 Accepted` with `job_id`) |
+| `GET` | `/api/v1/comparisons` | List recent jobs |
+| `GET` | `/api/v1/comparisons/{job_id}` | Get job status and full result |
+| `DELETE` | `/api/v1/comparisons/{job_id}` | Delete a job |
 
-### With a WHERE clause filter
-```bash
-python -m sentinel.cli compare \
-  --source-db "sqlite:///source.db" \
-  --target-db "sqlite:///target.db" \
-  --table "employees" \
-  --where "department = 'Engineering'"
-```
-
-### With composite keys
-```bash
-python -m sentinel.cli compare \
-  --source-db "sqlite:///source.db" \
-  --target-db "sqlite:///target.db" \
-  --table "orders" \
-  --composite-keys "customer_id,product_id"
-```
-
-### Save full report to JSON
-```bash
-python -m sentinel.cli compare \
-  --source-db "sqlite:///source.db" \
-  --target-db "sqlite:///target.db" \
-  --table "employees" \
-  --save-report
-```
+Interactive docs available at `/docs` (Swagger UI) and `/redoc` (ReDoc).
 
 ---
 
-## Sample Output
-```
-✅ Connected to source database.
-✅ Connected to target database.
-🔍 Auto-detected primary key: 'id'
-🔑 Strategy: Primary Key comparison on column 'id'
+## Tech Stack
 
-📊 data-sentinel Report — 2026-02-24 14:31:04
-📋 Table: employees
-╭──────────────────────┬─────────╮
-│ Check                │   Count │
-├──────────────────────┼─────────┤
-│ Total rows in source │       5 │
-│ Total rows in target │       5 │
-│ Missing in target    │       1 │
-│ Missing in source    │       1 │
-│ Mismatched rows      │       2 │
-╰──────────────────────┴─────────╯
-
-⚠️  Column Mismatches:
-  Key: 1 (column: id)
-    • salary: '50000' → '55000'
-  Key: 3 (column: id)
-    • department: 'HR' → 'Marketing'
-
-❌ Missing in Target:
-  Key: 4 → {'id': 4, 'name': 'Diana', 'department': 'Finance', 'salary': 70000}
-
-➕ Missing in Source:
-  Key: 6 → {'id': 6, 'name': 'Frank', 'department': 'Finance', 'salary': 72000}
-
-❌ 4 issue(s) found across both databases.
-```
-
----
-
-## Supported Databases
-
-Any SQLAlchemy-compatible database:
-- SQLite
-- PostgreSQL
-- MySQL
-- Oracle
+| Layer | Technology |
+|-------|-----------|
+| Language | Python 3.9+ |
+| REST API | FastAPI + Uvicorn |
+| ORM | SQLAlchemy 2.0 |
+| Validation | Pydantic v2 + pydantic-settings |
+| Database | PostgreSQL (production) / SQLite (local dev) |
+| CLI | Click |
+| Container | Docker |
 
 ---
 
 ## Project Structure
+
 ```
 data-sentinel/
-├── sentinel/
-│   ├── cli.py          # CLI entry point (Click)
-│   ├── connector.py    # Database connection handler
-│   ├── comparator.py   # Three-strategy comparison engine
-│   ├── reporter.py     # Terminal + JSON report generation
-│   └── utils.py        # MD5 hashing and key extraction
+├── app/                    # FastAPI service layer
+│   ├── api/v1/             # HTTP routes
+│   ├── core/               # Config (pydantic-settings)
+│   ├── db/                 # SQLAlchemy session + ORM models
+│   ├── schemas/            # Pydantic request/response models
+│   ├── services/           # Business logic + job orchestration
+│   └── main.py             # FastAPI app entry point
+├── sentinel/               # Original comparison engine + Click CLI
+│   ├── comparator.py
+│   ├── connector.py
+│   ├── reporter.py
+│   └── cli.py
+├── scripts/
+│   └── seed_demo.py        # Seeds demo SQLite DBs with intentional differences
+├── Dockerfile              # Production container
 ├── requirements.txt
 └── README.md
 ```
 
 ---
 
-## Tech Stack
+## Configuration
 
-- **Python 3.10+**
-- **SQLAlchemy** — database-agnostic connections
-- **Click** — CLI interface
-- **Tabulate** — terminal report formatting
-- **hashlib** — MD5 row hashing (built-in)
+All config is read from environment variables or a local `.env` file.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATABASE_URL` | `sqlite:///./data_sentinel.db` | SQLAlchemy connection URL for the metadata store |
+
+See `.env.example` for the full format.
+
+---
+
+## Roadmap
+
+- [x] FastAPI REST layer over the existing CLI engine
+- [x] Persistent job storage with SQLAlchemy ORM
+- [x] Async job orchestration via FastAPI BackgroundTasks
+- [x] Env-driven configuration + Dockerfile for cloud deployment
+- [ ] Production deployment on Render
+- [ ] Pytest test suite + GitHub Actions CI
+- [ ] Excel report download endpoint (currently CLI-only)
+- [ ] Optional API key authentication
+- [ ] Migrate background jobs to Celery for distributed workers
+
+---
+
+## License
+
+MIT

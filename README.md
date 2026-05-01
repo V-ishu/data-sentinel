@@ -1,6 +1,9 @@
 # data-sentinel
 
 ![CI](https://github.com/V-ishu/data-sentinel/actions/workflows/ci.yml/badge.svg)
+![Python](https://img.shields.io/badge/python-3.9+-blue.svg)
+![License](https://img.shields.io/badge/license-MIT-green.svg)
+![Deployed on Render](https://img.shields.io/badge/deployed-Render-46e3b7.svg)
 
 **Live demo:** [data-sentinel.onrender.com](https://data-sentinel.onrender.com) . 
 **API docs:** [/docs](https://data-sentinel.onrender.com/docs)
@@ -9,11 +12,30 @@
 
 `data-sentinel` exposes both a Python CLI (Click) and a REST API (FastAPI) for verifying data integrity across database environments — useful during migrations, releases, and post-deploy validation.
 
+
+## Try it now (no install needed)
+
+The live demo is running on Render. Hit it directly:
+
+\```bash
+# Health check
+curl https://data-sentinel.onrender.com/api/v1/health
+
+# List recent comparison jobs
+curl https://data-sentinel.onrender.com/api/v1/comparisons
+\```
+
+Or open the interactive Swagger UI: **[data-sentinel.onrender.com/docs](https://data-sentinel.onrender.com/docs)**
+
+> **Note:** The free Render instance sleeps after 15 minutes of inactivity. First request after sleep takes ~30 seconds to wake up. After that, responses are sub-second.
+
 ---
 
 ## Why
 
-During data migrations between environments (dev → UAT → prod, or one client's database to another), engineers routinely need to verify that the destination matches the source — table by table, row by row. Manual SQL queries are slow and error-prone. `data-sentinel` automates this with both a CLI for ad-hoc runs and a REST API for programmatic or scheduled use.
+I built the original engine while working at Amdocs, where my team needed to validate that data matched after every migration between Dev → UAT → Prod environments. Manual SQL spot-checks were slow, error-prone, and didn't scale to ~4M-row tables.
+
+The internal version is now embedded in release pipelines used by 50+ engineers across multiple teams. `data-sentinel` is the open-source generalization — same comparison engine, same three-tier fallback strategy, but generalized to work across any SQLAlchemy-compatible database (PostgreSQL, Oracle, MySQL, SQLite) and packaged as both a CLI and a REST API.
 
 ---
 
@@ -33,33 +55,52 @@ During data migrations between environments (dev → UAT → prod, or one client
 
 ---
 
-## Architecture
+## Architecture 
 
+```mermaid
+flowchart LR
+    Client["Client<br/>curl · Postman · browser"]
+
+    subgraph svc["data-sentinel service"]
+        direction TB
+        API["FastAPI REST layer<br/><br/>POST /comparisons<br/>GET /comparisons/{id}<br/>GET /comparisons<br/>DELETE /comparisons/{id}"]
+        Worker["BackgroundTask worker<br/><br/>runs sentinel engine<br/>PK → Composite Key → MD5"]
+        JobsDB[("Jobs metadata<br/><br/>PostgreSQL (prod)<br/>SQLite (local)")]
+
+        API -->|enqueue job| Worker
+        API <-->|read / write| JobsDB
+        Worker -->|update status + result| JobsDB
+    end
+
+    SourceDB[("Source DB<br/>user-supplied")]
+    TargetDB[("Target DB<br/>user-supplied")]
+
+    Client -->|HTTP| API
+    Worker -->|read rows| SourceDB
+    Worker -->|read rows| TargetDB
 ```
-┌──────────────┐
-│    Client    │  curl / Postman / browser at /docs
-└──────┬───────┘
-       │ HTTP
-       ▼
-┌──────────────────────────────────┐
-│            FastAPI               │
-│  POST /api/v1/comparisons        │
-│  GET  /api/v1/comparisons        │
-│  GET  /api/v1/comparisons/{id}   │
-│  DELETE /api/v1/comparisons/{id} │
-└──┬────────────────┬──────────────┘
-   │ enqueue        │ persist job state
-   ▼                ▼
-┌───────────────┐  ┌──────────────┐
-│ BackgroundTask│  │   Database   │
-│  runs engine  │  │ (jobs table) │
-└──────┬────────┘  └──────────────┘
-       │ uses sentinel.* engine
-       ▼
-┌──────────────┐     ┌──────────────┐
-│  Source DB   │     │  Target DB   │  user-supplied
-└──────────────┘     └──────────────┘
-```
+
+**Request lifecycle:**
+1. Client `POST`s a comparison request → API persists a `queued` job in metadata DB → returns `202 Accepted` with `job_id`.
+2. `BackgroundTask` picks up the job, marks it `running`, and runs the sentinel engine against the user-supplied source and target databases.
+3. Engine picks the best comparison strategy (PK if available → composite key → MD5 row hash fallback) and writes the result back to the metadata DB.
+4. Client polls `GET /comparisons/{job_id}` to retrieve the final result.
+
+
+## Design Decisions
+
+A few choices that aren't obvious from the code:
+
+- **Three-tier fallback (PK → Composite Key → MD5):** Most comparison tools assume a primary key exists. Real-world databases often don't have one (legacy tables, denormalized warehouses, partial migrations). The fallback ensures `data-sentinel` works on any pair of tables, with the caller getting back the strategy used so they can interpret the result.
+
+- **MD5 row hashing over SHA-256:** MD5 is faster and the use case is drift detection, not security. Hash collisions are operationally irrelevant here.
+
+- **`BackgroundTasks` over Celery:** A comparison run is bounded and in-process. Adding Celery + Redis would be over-engineering for the current single-instance deployment. Migrating to Celery is on the roadmap if/when horizontal scaling matters.
+
+- **Repository pattern with per-request session injection:** Keeps the API layer thin and makes the `JobStore` independently testable without spinning up FastAPI's dependency container.
+
+- **PostgreSQL in production, SQLite locally:** SQLAlchemy abstracts both; the same code runs in either. SQLite gives a zero-setup local dev loop; PostgreSQL gives concurrent-write safety in production.
+
 
 ---
 
@@ -97,6 +138,41 @@ Try `POST /api/v1/comparisons` with this body:
 ```
 
 You'll get a `job_id` back. Then call `GET /api/v1/comparisons/{job_id}` to see the full diff.
+
+**Sample response:**
+
+```json
+
+{
+  "job_id": "8f3c1a9e-2b5d-4f7a-9c8e-1a2b3c4d5e6f",
+  "status": "queued",
+  "created_at": "2026-05-01T14:32:18.421Z"
+}
+
+```
+
+A few seconds later, `GET /api/v1/comparisons/{job_id}` returns the full diff:
+
+```json
+
+{
+  "job_id": "8f3c1a9e-2b5d-4f7a-9c8e-1a2b3c4d5e6f",
+  "status": "completed",
+  "table": "employees",
+  "summary": {
+    "strategy_used": "primary_key",
+    "rows_in_source": 1024,
+    "rows_in_target": 1019,
+    "rows_only_in_source": 7,
+    "rows_only_in_target": 2,
+    "rows_with_differences": 14,
+    "matching_rows": 1003
+  },
+  "started_at": "2026-05-01T14:32:18.500Z",
+  "finished_at": "2026-05-01T14:32:21.892Z"
+}
+
+```
 
 ### CLI (Original)
 

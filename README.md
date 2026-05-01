@@ -17,13 +17,13 @@
 
 The live demo is running on Render. Hit it directly:
 
-\```bash
+```bash
 # Health check
 curl https://data-sentinel.onrender.com/api/v1/health
 
 # List recent comparison jobs
 curl https://data-sentinel.onrender.com/api/v1/comparisons
-\```
+```
 
 Or open the interactive Swagger UI: **[data-sentinel.onrender.com/docs](https://data-sentinel.onrender.com/docs)**
 
